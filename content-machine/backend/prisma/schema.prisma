@@ -1,0 +1,248 @@
+// Prisma schema for Toddler Content Machine
+// Handles users, content, scheduling, and analytics
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User authentication and profile management
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  passwordHash      String
+  firstName         String?
+  lastName          String?
+  role              UserRole           @default(CREATOR)
+  isActive          Boolean            @default(true)
+  isEmailVerified   Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  // Relations
+  contents          Content[]
+  schedules         ContentSchedule[]
+  platforms         PlatformConnection[]
+  analytics         ContentAnalytics[]
+  contentTemplates  ContentTemplate[]
+  
+  @@index([email])
+}
+
+enum UserRole {
+  ADMIN
+  CREATOR
+  VIEWER
+}
+
+// Platform connections (YouTube, TikTok, etc.)
+model PlatformConnection {
+  id            String          @id @default(uuid())
+  userId        String
+  platform      Platform
+  accessToken   String
+  refreshToken  String?
+  tokenExpiry   DateTime?
+  channelId     String?
+  channelName   String?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schedules     ContentSchedule[]
+  
+  @@unique([userId, platform])
+  @@index([userId])
+}
+
+enum Platform {
+  YOUTUBE
+  TIKTOK
+  INSTAGRAM
+  FACEBOOK
+}
+
+// Content templates for toddler videos
+model ContentTemplate {
+  id              String            @id @default(uuid())
+  userId          String?
+  name            String
+  description     String?
+  category        ToddlerCategory
+  ageRange        String            @default("0-6")
+  style           AnimationStyle
+  duration        Int               @default(60) // seconds
+  promptTemplate  String            // AI generation prompt template
+  thumbnailPrompt String?           // Thumbnail generation prompt
+  tags            String[]
+  isPublic        Boolean           @default(false)
+  usageCount      Int               @default(0)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contents        Content[]
+  
+  @@index([category])
+  @@index([userId])
+}
+
+enum ToddlerCategory {
+  NURSERY_RHYMES
+  COUNTING
+  ALPHABET
+  COLORS
+  SHAPES
+  ANIMALS
+  VEHICLES
+  NATURE
+  BEDTIME
+  EDUCATIONAL
+  MUSIC_DANCE
+  STORIES
+}
+
+enum AnimationStyle {
+  CARTOON_2D
+  CARTOON_3D
+  CLAY_ANIMATION
+  WATERCOLOR
+  PIXEL_ART
+  REALISTIC
+  MINIMALIST
+  COLORFUL_ABSTRACT
+}
+
+// Generated content
+model Content {
+  id                String              @id @default(uuid())
+  userId            String
+  templateId        String?
+  title             String
+  description       String?
+  script            String?             // Generated script/narrative
+  voiceOverUrl      String?             // URL to generated voiceover
+  videoUrl          String?             // URL to generated video
+  thumbnailUrl      String?             // URL to generated thumbnail
+  duration          Int?                // Duration in seconds
+  status            ContentStatus       @default(DRAFT)
+  generationPrompt  String?             // The prompt used for generation
+  generationParams  Json?               // Additional generation parameters
+  category          ToddlerCategory
+  ageRange          String              @default("0-6")
+  tags              String[]
+  metadata          Json?               // Platform-specific metadata
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template          ContentTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  schedules         ContentSchedule[]
+  analytics         ContentAnalytics[]
+  
+  @@index([userId])
+  @@index([status])
+  @@index([category])
+}
+
+enum ContentStatus {
+  DRAFT
+  GENERATING
+  READY
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+// Content scheduling with optimal timing
+model ContentSchedule {
+  id                  String              @id @default(uuid())
+  userId              String
+  contentId           String
+  platformConnectionId String
+  scheduledTime       DateTime
+  timezone            String              @default("UTC")
+  isOptimalTime       Boolean             @default(false)
+  optimizationScore   Float?              // How optimal this time slot is (0-100)
+  status              ScheduleStatus      @default(PENDING)
+  publishedAt         DateTime?
+  platformPostId      String?             // ID on the platform after publishing
+  platformUrl         String?             // URL on the platform
+  errorMessage        String?
+  retryCount          Int                 @default(0)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content             Content             @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  platformConnection  PlatformConnection  @relation(fields: [platformConnectionId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([scheduledTime])
+  @@index([status])
+}
+
+enum ScheduleStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+// Content analytics and performance tracking
+model ContentAnalytics {
+  id              String          @id @default(uuid())
+  userId          String
+  contentId       String
+  platform        Platform
+  platformPostId  String?
+  views           Int             @default(0)
+  likes           Int             @default(0)
+  comments        Int             @default(0)
+  shares          Int             @default(0)
+  watchTime       Int             @default(0)  // Total watch time in seconds
+  avgWatchPercent Float?                       // Average percentage watched
+  subscriberGain  Int             @default(0)
+  revenue         Float           @default(0)  // Estimated revenue
+  engagementRate  Float?                       // Calculated engagement rate
+  ctr             Float?                       // Click-through rate
+  impressions     Int             @default(0)
+  demographics    Json?                        // Viewer demographics
+  peakViewingTime String?                      // Best performing time
+  recordedAt      DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content         Content         @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([contentId])
+  @@index([platform])
+  @@index([recordedAt])
+}
+
+// Optimal upload time data (aggregated insights)
+model OptimalUploadTime {
+  id              String          @id @default(uuid())
+  platform        Platform
+  category        ToddlerCategory
+  dayOfWeek       Int             // 0-6 (Sunday-Saturday)
+  hourOfDay       Int             // 0-23
+  timezone        String          @default("UTC")
+  score           Float           // Optimization score (0-100)
+  avgViews        Float?
+  avgEngagement   Float?
+  sampleSize      Int             @default(0)
+  updatedAt       DateTime        @updatedAt
+  
+  @@unique([platform, category, dayOfWeek, hourOfDay, timezone])
+  @@index([platform, category])
+}
